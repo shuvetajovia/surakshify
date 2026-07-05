@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Surakshify 🛡️ | Autonomous Fraud Defense Dashboard</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS JIT -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                        mono: ['Share Tech Mono', 'monospace'],
+                    },
+                    colors: {
+                        darkBg: '#090d16',
+                        darkCard: '#101726',
+                        accentBlue: '#00d2ff',
+                        accentGold: '#ffd700',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- React & Babel CDNs -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        body {
+            background-color: #090d16;
+            color: #f3f4f6;
+        }
+        /* Custom scrollbar for terminal/logs */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+        .glow-blue {
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+        }
+        .glow-red {
+            box-shadow: 0 0 15px rgba(244, 63, 94, 0.4);
+        }
+        .glow-green {
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        }
+        .glow-gold {
+            box-shadow: 0 0 15px rgba(251, 191, 36, 0.4);
+        }
+        /* Animated scan line */
+        @keyframes scan {
+            0% { top: 0%; }
+            100% { top: 100%; }
+        }
+        .scanner-line {
+            animation: scan 3s linear infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        function App() {
+            // State variables
+            const [transactions, setTransactions] = useState([
+                {
+                    transaction_id: "TX_INIT01",
+                    user_id: "usr_shuveta_2026",
+                    amount: 3500.00,
+                    merchant: "SBI ATM Withdrawal",
+                    location: "Chennai",
+                    device: "iPhone_15_Pro",
+                    timestamp: new Date().toISOString(),
+                    action: "APPROVE",
+                    score: 0.15,
+                    reason: "Low risk profile"
+                }
+            ]);
+            
+            const [inputForm, setInputForm] = useState({
+                user_id: "usr_shuveta_2026",
+                amount: "",
+                location: "Chennai",
+                merchant: "",
+                device: "iPhone_15_Pro"
+            });
+            
+            const [currentTrace, setCurrentTrace] = useState(null);
+            const [isEvaluating, setIsEvaluating] = useState(false);
+            const [showLatticeMath, setShowLatticeMath] = useState(false);
+            const [stats, setStats] = useState({
+                totalProcessed: 1,
+                blockedFraud: 0,
+                escalatedCases: 0,
+                pqcActive: true,
+                systemThreatLevel: "LOW"
+            });
+
+            // Pre-configured users
+            const usersList = [
+                { id: "usr_shuveta_2026", name: "A Shuveta Jovi (Chennai)" },
+                { id: "usr_nupur_2026", name: "Nupur Goswami (Mumbai)" },
+                { id: "usr_rijul_2026", name: "Rijul Raisa Beura (Bhubaneswar)" }
+            ];
+
+            const locationsList = ["Chennai", "Mumbai", "Bhubaneswar", "London", "New York", "Delhi", "Unknown Proxy"];
+            const devicesList = ["iPhone_15_Pro", "Pixel_9_Pro", "MacBook_Pro_M3", "SBI_Netbanking_Portal", "Tor_Browser_Proxy"];
+
+            // Calculate threat statistics based on transactions
+            useEffect(() => {
+                const total = transactions.length;
+                const frozen = transactions.filter(t => t.action === "FREEZE");
+                const escalated = transactions.filter(t => t.action === "ESCALATE");
+                const totalFraudSaved = frozen.reduce((acc, t) => acc + t.amount, 0);
+
+                let threatLevel = "LOW";
+                if (frozen.length > 2) threatLevel = "CRITICAL";
+                else if (frozen.length > 0 || escalated.length > 2) threatLevel = "MEDIUM";
+
+                setStats({
+                    totalProcessed: total,
+                    blockedFraud: totalFraudSaved,
+                    escalatedCases: escalated.length,
+                    pqcActive: true,
+                    systemThreatLevel: threatLevel
+                });
+                
+                // Initialize icons
+                lucide.createIcons();
+            }, [transactions]);
+
+            // Form input handler
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setInputForm(prev => ({ ...prev, [name]: value }));
+            };
+
+            // Evaluate transaction
+            const submitTransaction = async (txData) => {
+                setIsEvaluating(true);
+                setCurrentTrace(null);
+                
+                const preparedPayload = {
+                    transaction_id: txData.transaction_id || "TX_" + Math.floor(100000 + Math.random() * 900000),
+                    user_id: txData.user_id,
+                    amount: parseFloat(txData.amount) || 100.0,
+                    merchant: txData.merchant || "Online Merchant",
+                    location: txData.location,
+                    device: txData.device,
+                    timestamp: txData.timestamp || new Date().toISOString()
+                };
+
+                try {
+                    const response = await fetch("/api/v1/evaluate", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(preparedPayload)
+                    });
+
+                    if (!response.ok) throw new Error("Evaluation request failed");
+                    
+                    const result = await response.json();
+                    
+                    // Add delay to show animated evaluation steps
+                    setTimeout(() => {
+                        setCurrentTrace(result);
+                        setIsEvaluating(false);
+                        
+                        // Add to log
+                        setTransactions(prev => [
+                            {
+                                transaction_id: result.transaction_id,
+                                user_id: preparedPayload.user_id,
+                                amount: preparedPayload.amount,
+                                merchant: preparedPayload.merchant,
+                                location: preparedPayload.location,
+                                device: preparedPayload.device,
+                                timestamp: preparedPayload.timestamp,
+                                action: result.ai_evaluation.action,
+                                score: result.ai_evaluation.score,
+                                reason: result.ai_evaluation.reason
+                            },
+                            ...prev
+                        ]);
+                    }, 1200);
+
+                } catch (error) {
+                    console.error("Evaluation error:", error);
+                    setIsEvaluating(false);
+                    alert("Error processing transaction. Ensure FastAPI server is running.");
+                }
+            };
+
+            // Trigger simulator feed (5 distinct test cases)
+            const runFeedSimulation = async () => {
+                try {
+                    const response = await fetch("/api/v1/simulate-feed");
+                    if (!response.ok) throw new Error("Simulate feed failed");
+                    const feed = await response.json();
+
+                    // Evaluate each simulation step-by-step
+                    let delay = 0;
+                    feed.forEach((tx) => {
+                        setTimeout(() => {
+                            submitTransaction(tx);
+                        }, delay);
+                        delay += 3000; // Trigger every 3 seconds
+                    });
+                } catch (error) {
+                    alert("Failed to connect to simulation API feed.");
+                }
+            };
+
+            // Render badge helper
+            const getActionBadge = (action) => {
+                switch (action) {
+                    case "APPROVE":
+                        return <span class="px-3 py-1 text-xs font-semibold bg-emerald-950/80 border border-emerald-500/30 text-emerald-400 rounded-full flex items-center gap-1 w-max"><i data-lucide="shield-check" class="w-3 h-3"></i> Approved</span>;
+                    case "FREEZE":
+                        return <span class="px-3 py-1 text-xs font-semibold bg-rose-950/80 border border-rose-500/30 text-rose-400 rounded-full flex items-center gap-1 w-max"><i data-lucide="lock" class="w-3 h-3"></i> Locked</span>;
+                    case "ESCALATE":
+                        return <span class="px-3 py-1 text-xs font-semibold bg-amber-950/80 border border-amber-500/30 text-amber-400 rounded-full flex items-center gap-1 w-max"><i data-lucide="shield-alert" class="w-3 h-3"></i> Escalated</span>;
+                    default:
+                        return <span class="px-3 py-1 text-xs font-semibold bg-slate-800 text-slate-300 rounded-full w-max">Unknown</span>;
+                }
+            };
+
+            // Helper to render action glow class
+            const getGlowClass = (action) => {
+                if (action === "APPROVE") return "border-emerald-500/40 glow-green";
+                if (action === "FREEZE") return "border-rose-500/40 glow-red";
+                if (action === "ESCALATE") return "border-amber-500/40 glow-gold";
+                return "border-slate-800";
+            };
+
+            return (
+                <div class="p-6 max-w-7xl mx-auto space-y-6">
+                    
+                    {/* Header Banner */}
+                    <header class="flex flex-col md:flex-row md:items-center justify-between border border-slate-800/80 p-5 rounded-2xl bg-darkCard/80 relative overflow-hidden backdrop-blur-md">
+                        <div class="absolute w-full h-0.5 bg-gradient-to-r from-cyan-500 via-yellow-500 to-indigo-600 top-0 left-0"></div>
+                        <div class="flex items-center gap-3">
+                            <div class="p-3 bg-gradient-to-br from-cyan-500 to-blue-700 rounded-xl glow-blue">
+                                <i data-lucide="shield" class="w-8 h-8 text-white"></i>
+                            </div>
+                            <div>
+                                <h1 class="text-2xl font-bold tracking-tight text-white flex items-center gap-2 font-sans">
+                                    SURAKSHIFY <span class="text-xs bg-slate-800 border border-slate-700 text-slate-400 px-2 py-0.5 rounded font-mono">v1.0-SBI</span>
+                                </h1>
+                                <p class="text-xs text-slate-400 font-sans mt-0.5">
+                                    Autonomous Fraud Defense powered by Agentic AI + Quantum-Safe Cryptography
+                                </p>
+                            </div>
+                        </div>
+                        <div class="mt-4 md:mt-0 flex flex-col md:items-end">
+                            <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest font-mono">Development Team</span>
+                            <div class="flex gap-2 text-xs font-medium text-slate-300 mt-1">
+                                <span class="bg-slate-900 border border-slate-800 px-2 py-1 rounded">A Shuveta Jovi</span>
+                                <span class="bg-slate-900 border border-slate-800 px-2 py-1 rounded">Nupur Goswami</span>
+                                <span class="bg-slate-900 border border-slate-800 px-2 py-1 rounded">Rijul Raisa Beura</span>
+                            </div>
+                            <span class="text-[10px] text-amber-500/80 font-mono mt-1">GFF 2026 - SBI Hackathon submission</span>
+                        </div>
+                    </header>
+
+                    {/* Stats Widget Row */}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                        
+                        <div class="bg-darkCard/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                            <div class="p-3 bg-cyan-950/60 border border-cyan-800/30 text-cyan-400 rounded-lg">
+                                <i data-lucide="refresh-cw" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <div class="text-xs text-slate-400">Total Evaluated</div>
+                                <div class="text-2xl font-bold text-white font-mono">{stats.totalProcessed}</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-darkCard/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                            <div class="p-3 bg-emerald-950/60 border border-emerald-800/30 text-emerald-400 rounded-lg">
+                                <i data-lucide="shield" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <div class="text-xs text-slate-400">PQC Tunnel</div>
+                                <div class="text-xs font-semibold text-emerald-400 mt-1 flex items-center gap-1 font-mono">
+                                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                    ACTIVE (Ring-LWE)
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-darkCard/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                            <div class="p-3 bg-rose-950/60 border border-rose-800/30 text-rose-400 rounded-lg">
+                                <i data-lucide="lock" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <div class="text-xs text-slate-400">Auto-Blocked Fraud</div>
+                                <div class="text-2xl font-bold text-rose-400 font-mono">₹{stats.blockedFraud.toLocaleString()}</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-darkCard/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                            <div class="p-3 bg-amber-950/60 border border-amber-800/30 text-amber-400 rounded-lg">
+                                <i data-lucide="shield-alert" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <div class="text-xs text-slate-400">Escalated (MFA)</div>
+                                <div class="text-2xl font-bold text-amber-400 font-mono">{stats.escalatedCases}</div>
+                            </div>
+                        </div>
+
+                        <div class="bg-darkCard/60 border border-slate-800/80 p-4 rounded-xl flex items-center gap-4">
+                            <div class="p-3 bg-indigo-950/60 border border-indigo-800/30 text-indigo-400 rounded-lg">
+                                <i data-lucide="activity" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <div class="text-xs text-slate-400">System Threat Level</div>
+                                <div class={`text-sm font-bold uppercase tracking-wider font-mono mt-1 ${stats.systemThreatLevel === "CRITICAL" ? "text-rose-500" : stats.systemThreatLevel === "MEDIUM" ? "text-amber-500" : "text-emerald-400"}`}>
+                                    {stats.systemThreatLevel}
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    {/* Main Workspace Layout */}
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        
+                        {/* Simulation & Form Controls (Left panel) */}
+                        <div class="lg:col-span-5 space-y-6">
+                            
+                            {/* Manual Simulator */}
+                            <div class="bg-darkCard border border-slate-800/80 rounded-xl p-5 relative overflow-hidden">
+                                <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                    <i data-lucide="terminal" class="text-cyan-400 w-5 h-5"></i> Transaction Simulator
+                                </h2>
+                                
+                                <form onSubmit={(e) => { e.preventDefault(); submitTransaction(inputForm); }} class="space-y-4">
+                                    
+                                    <div>
+                                        <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">User Account / Profile Context</label>
+                                        <select 
+                                            name="user_id" 
+                                            value={inputForm.user_id} 
+                                            onChange={handleInputChange}
+                                            class="w-full bg-slate-900 border border-slate-800 text-slate-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500/50"
+                                        >
+                                            {usersList.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Amount (INR ₹)</label>
+                                            <input 
+                                                type="number" 
+                                                name="amount" 
+                                                placeholder="e.g. 500" 
+                                                value={inputForm.amount} 
+                                                onChange={handleInputChange} 
+                                                required
+                                                class="w-full bg-slate-900 border border-slate-800 text-slate-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500/50"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Location Origin</label>
+                                            <select 
+                                                name="location" 
+                                                value={inputForm.location} 
+                                                onChange={handleInputChange}
+                                                class="w-full bg-slate-900 border border-slate-800 text-slate-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500/50"
+                                            >
+                                                {locationsList.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Merchant Terminal</label>
+                                            <input 
+                                                type="text" 
+                                                name="merchant" 
+                                                placeholder="e.g. Amazon India" 
+                                                value={inputForm.merchant} 
+                                                onChange={handleInputChange} 
+                                                required
+                                                class="w-full bg-slate-900 border border-slate-800 text-slate-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500/50"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Device Client Signature</label>
+                                            <select 
+                                                name="device" 
+                                                value={inputForm.device} 
+                                                onChange={handleInputChange}
+                                                class="w-full bg-slate-900 border border-slate-800 text-slate-300 rounded-lg p-2.5 text-sm focus:outline-none focus:border-cyan-500/50"
+                                            >
+                                                {devicesList.map(d => <option key={d} value={d}>{d}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <button 
+                                        type="submit" 
+                                        disabled={isEvaluating}
+                                        class="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold p-3 rounded-lg text-sm transition-all focus:outline-none flex justify-center items-center gap-2 cursor-pointer disabled:opacity-50"
+                                    >
+                                        {isEvaluating ? (
+                                            <>
+                                                <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                                Analyzing Security Matrix...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <i data-lucide="play" class="w-4 h-4"></i> Submit Transaction to Firewall
+                                            </>
+                                        )}
+                                    </button>
+                                </form>
+                            </div>
+
+                            {/* Threat Feed Automation */}
+                            <div class="bg-darkCard border border-slate-800/80 rounded-xl p-5 relative">
+                                <h2 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
+                                    <i data-lucide="flame" class="text-orange-400 w-5 h-5"></i> Bulk Threat Simulation Feed
+                                </h2>
+                                <p class="text-xs text-slate-400 mb-4 leading-relaxed">
+                                    Generates 5 sequential real-time transaction types (Legitimate, Amount Anomaly, Geolocation Mismatch, Device/Tor Signature Mismatch, and Velocity/Card Testing Bot Attack) to show how the firewall handles them dynamically.
+                                </p>
+                                <button 
+                                    onClick={runFeedSimulation}
+                                    class="w-full bg-slate-900 border border-slate-800 hover:bg-slate-800/60 text-slate-300 font-bold p-3 rounded-lg text-sm transition-all focus:outline-none flex justify-center items-center gap-2 cursor-pointer"
+                                >
+                                    <i data-lucide="radio" class="w-4 h-4 text-orange-400 animate-pulse"></i> Inject Threat Simulator Stream
+                                </button>
+                            </div>
+
+                        </div>
+
+                        {/* Visual Evaluation Pipeline (Right panel) */}
+                        <div class="lg:col-span-7">
+                            <div class="bg-darkCard border border-slate-800/80 rounded-xl p-5 h-full flex flex-col relative overflow-hidden">
+                                <div class="absolute w-32 h-32 bg-cyan-500/5 blur-[120px] top-0 right-0"></div>
+                                
+                                <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2 justify-between">
+                                    <span class="flex items-center gap-2">
+                                        <i data-lucide="cpu" class="text-blue-400 w-5 h-5"></i> Live Evaluation Audit Tracer
+                                    </span>
+                                    {currentTrace && (
+                                        <span class="text-xs font-mono text-slate-400 font-normal">
+                                            TX_ID: {currentTrace.transaction_id}
+                                        </span>
+                                    )}
+                                </h2>
+
+                                {!currentTrace && !isEvaluating ? (
+                                    <div class="flex-1 flex flex-col justify-center items-center text-center p-10 border border-dashed border-slate-800 rounded-lg">
+                                        <div class="w-16 h-16 rounded-full bg-slate-900/50 flex items-center justify-center text-slate-500 border border-slate-800 mb-4">
+                                            <i data-lucide="shield-alert" class="w-8 h-8"></i>
+                                        </div>
+                                        <h3 class="text-sm font-semibold text-slate-300">No Transaction Audited</h3>
+                                        <p class="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
+                                            Submit a transaction from the Simulator panel or inject the bulk simulation stream to watch the security telemetry trace here.
+                                        </p>
+                                    </div>
+                                ) : isEvaluating ? (
+                                    <div class="flex-1 flex flex-col justify-center items-center p-12 relative">
+                                        <div class="w-24 h-24 rounded-full border border-cyan-500/20 flex items-center justify-center relative animate-pulse">
+                                            <div class="absolute w-20 h-20 rounded-full border border-dashed border-cyan-500/30 animate-spin"></div>
+                                            <i data-lucide="shield" class="w-10 h-10 text-cyan-400"></i>
+                                        </div>
+                                        <h3 class="text-sm font-semibold text-slate-300 mt-4 animate-pulse">Processing Hybrid Security Layer...</h3>
+                                        <p class="text-xs text-slate-500 mt-1 font-mono">Encrypting Payload (Kyber) & Scoring Agent Metrics</p>
+                                    </div>
+                                ) : (
+                                    /* Pipeline Tracer Content */
+                                    <div class="flex-1 space-y-4">
+                                        
+                                        {/* Step 1: Quantum Cryptography Container */}
+                                        <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 relative overflow-hidden">
+                                            <div class="absolute top-0 right-0 p-1.5 text-[9px] bg-slate-900 font-mono text-cyan-400 rounded-bl border-l border-b border-slate-800 flex items-center gap-1">
+                                                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span> SECURE TUNNEL
+                                            </div>
+                                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                                🛡️ Step 1: Post-Quantum Lattice Encryption
+                                            </h4>
+                                            
+                                            <div class="space-y-2 text-xs">
+                                                <div class="grid grid-cols-4 border-b border-slate-900 pb-2">
+                                                    <div class="col-span-1 text-slate-500 font-medium">Cipher Text:</div>
+                                                    <div class="col-span-3 font-mono text-[10px] text-cyan-500 truncate" title={currentTrace.quantum_encryption.ciphertext}>
+                                                        {currentTrace.quantum_encryption.ciphertext}
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="flex items-center justify-between pt-1">
+                                                    <span class="text-slate-500 text-[11px]">Ring-LWE Matrix Telemetry (Mod 257)</span>
+                                                    <button 
+                                                        onClick={() => setShowLatticeMath(!showLatticeMath)}
+                                                        class="text-[10px] font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 focus:outline-none cursor-pointer"
+                                                    >
+                                                        {showLatticeMath ? "Hide Matrix Parameters [-]" : "Visualize Lattice Parameters [+]"}
+                                                    </button>
+                                                </div>
+
+                                                {showLatticeMath && (
+                                                    <div class="bg-slate-900 p-2.5 rounded-md font-mono text-[9px] text-slate-400 space-y-2 mt-2 border border-slate-800 animate-fadeIn">
+                                                        <div>
+                                                            <span class="text-amber-500 font-semibold">Matrix A (8x8 dimensions):</span>
+                                                            <div class="grid grid-cols-8 gap-0.5 text-center mt-1 border-l border-r border-slate-700 px-1 py-0.5">
+                                                                {currentTrace.quantum_encryption.telemetry.matrix_A.slice(0, 4).map((row, idx) => 
+                                                                    row.map((val, cellIdx) => <div key={`${idx}-${cellIdx}`} class="text-[8px]">{val}</div>)
+                                                                )}
+                                                                <div class="col-span-8 text-center text-slate-600">... matrix truncated ...</div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <span class="text-amber-500 font-semibold">Noise vector e1:</span>
+                                                                <div class="text-[8px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-850 text-slate-300 mt-1">
+                                                                    [{currentTrace.quantum_encryption.telemetry.error_noise_e1.join(', ')}]
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <span class="text-amber-500 font-semibold">Ephemeral Key r:</span>
+                                                                <div class="text-[8px] bg-slate-950 px-1.5 py-0.5 rounded border border-slate-850 text-slate-300 mt-1">
+                                                                    [{currentTrace.quantum_encryption.telemetry.ephemeral_vector_r.join(', ')}]
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Step 2: Agentic AI Reasoning Logs */}
+                                        <div class="bg-slate-950 border border-slate-800 rounded-lg p-3">
+                                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                                🧠 Step 2: Multi-Agent Fraud Assessment
+                                            </h4>
+                                            
+                                            {/* Metrics risk bars */}
+                                            <div class="grid grid-cols-4 gap-2 mb-3">
+                                                <div class="bg-slate-900 border border-slate-850 p-2 rounded">
+                                                    <div class="text-[9px] text-slate-500 uppercase font-semibold">Geo Risk</div>
+                                                    <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                                                        <div 
+                                                            class={`h-full rounded-full ${currentTrace.ai_evaluation.metrics.location_risk > 0.7 ? "bg-rose-500" : "bg-emerald-500"}`}
+                                                            style={{ width: `${currentTrace.ai_evaluation.metrics.location_risk * 100}%` }}
+                                                        ></div>
+                                                    </div>
+                                                    <div class="text-[10px] font-bold text-slate-300 mt-1 font-mono">{Math.round(currentTrace.ai_evaluation.metrics.location_risk * 100)}%</div>
+                                                </div>
+
+                                                <div class="bg-slate-900 border border-slate-850 p-2 rounded">
+                                                    <div class="text-[9px] text-slate-500 uppercase font-semibold">Amount Risk</div>
+                                                    <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                                                        <div 
+                                                            class={`h-full rounded-full ${currentTrace.ai_evaluation.metrics.amount_risk > 0.7 ? "bg-rose-500" : "bg-emerald-500"}`}
+                                                            style={{ width: `${currentTrace.ai_evaluation.metrics.amount_risk * 100}%` }}
+                                                        ></div>
+                                                    </div>
+                                                    <div class="text-[10px] font-bold text-slate-300 mt-1 font-mono">{Math.round(currentTrace.ai_evaluation.metrics.amount_risk * 100)}%</div>
+                                                </div>
+
+                                                <div class="bg-slate-900 border border-slate-850 p-2 rounded">
+                                                    <div class="text-[9px] text-slate-500 uppercase font-semibold">Velocity Risk</div>
+                                                    <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                                                        <div 
+                                                            class={`h-full rounded-full ${currentTrace.ai_evaluation.metrics.velocity_risk > 0.7 ? "bg-rose-500" : "bg-emerald-500"}`}
+                                                            style={{ width: `${currentTrace.ai_evaluation.metrics.velocity_risk * 100}%` }}
+                                                        ></div>
+                                                    </div>
+                                                    <div class="text-[10px] font-bold text-slate-300 mt-1 font-mono">{Math.round(currentTrace.ai_evaluation.metrics.velocity_risk * 100)}%</div>
+                                                </div>
+
+                                                <div class="bg-slate-900 border border-slate-850 p-2 rounded">
+                                                    <div class="text-[9px] text-slate-500 uppercase font-semibold">Device Risk</div>
+                                                    <div class="w-full bg-slate-800 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                                                        <div 
+                                                            class={`h-full rounded-full ${currentTrace.ai_evaluation.metrics.device_risk > 0.7 ? "bg-rose-500" : "bg-emerald-500"}`}
+                                                            style={{ width: `${currentTrace.ai_evaluation.metrics.device_risk * 100}%` }}
+                                                        ></div>
+                                                    </div>
+                                                    <div class="text-[10px] font-bold text-slate-300 mt-1 font-mono">{Math.round(currentTrace.ai_evaluation.metrics.device_risk * 100)}%</div>
+                                                </div>
+                                            </div>
+
+                                            {/* Reasoning agent stream */}
+                                            <div class="bg-slate-900/60 rounded p-2 border border-slate-850/80">
+                                                <div class="text-[9px] text-slate-500 font-mono mb-1 uppercase tracking-wider">Agent Context & Reasoning Logs:</div>
+                                                <div class="font-mono text-[10px] text-slate-300 h-28 overflow-y-auto custom-scrollbar space-y-1.5 pr-2">
+                                                    {currentTrace.ai_evaluation.agent_reasoning.map((log, idx) => {
+                                                        let color = "text-slate-300";
+                                                        if (log.includes("ALERT:")) color = "text-rose-400";
+                                                        else if (log.includes("WARNING:")) color = "text-amber-400";
+                                                        else if (log.includes("OK:")) color = "text-emerald-400";
+                                                        return <div key={idx} class={`${color} leading-relaxed`}>{log}</div>
+                                                    })}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Step 3: Final Decision Banner */}
+                                        <div class={`border p-4 rounded-lg backdrop-blur-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${getGlowClass(currentTrace.ai_evaluation.action)}`}>
+                                            <div>
+                                                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">
+                                                    ⚡ Autonomous Mitigation Action
+                                                </h4>
+                                                <div class="text-xs text-slate-300 font-medium">
+                                                    {currentTrace.ai_evaluation.reason}
+                                                </div>
+                                            </div>
+                                            <div class="flex flex-col items-end gap-1">
+                                                {getActionBadge(currentTrace.ai_evaluation.action)}
+                                                <span class="text-[10px] font-mono text-slate-400">Threat Score: {currentTrace.ai_evaluation.score}</span>
+                                            </div>
+                                        </div>
+
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                    </div>
+
+                    {/* Historical Transactions Log Table */}
+                    <section class="bg-darkCard border border-slate-800/80 rounded-2xl p-5">
+                        <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            <i data-lucide="list" class="text-blue-400 w-5 h-5"></i> Live Transaction Audit Logs
+                        </h2>
+                        
+                        <div class="overflow-x-auto custom-scrollbar">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b border-slate-800/80 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                        <th class="pb-3 pr-4">Transaction ID</th>
+                                        <th class="pb-3 px-4">User ID</th>
+                                        <th class="pb-3 px-4">Amount</th>
+                                        <th class="pb-3 px-4">Merchant</th>
+                                        <th class="pb-3 px-4">Location</th>
+                                        <th class="pb-3 px-4">Device</th>
+                                        <th class="pb-3 px-4">Timestamp</th>
+                                        <th class="pb-3 pl-4">Mitigation Output</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-slate-850/60 text-sm">
+                                    {transactions.map((tx) => (
+                                        <tr 
+                                            key={tx.transaction_id} 
+                                            class="hover:bg-slate-900/30 transition-colors cursor-pointer text-slate-300"
+                                            onClick={() => {
+                                                // Create simulated telemetry to visualize on log click
+                                                const preparedMockTelemetry = {
+                                                    transaction_id: tx.transaction_id,
+                                                    quantum_encryption: {
+                                                        ciphertext: "[PQC-LATTICE-CIPHER]:eyJ1IjogWy04MywgMjAsIC01LCAxOTgsIDEzMCwgMjUsIDExNSwgNjZdLCAidiI6IFtbMTI4LCA2NSwgMzIsIDI0MSwgODIsIDE5OCwgMjMsIDI0OV1dfQ==",
+                                                        telemetry: {
+                                                            matrix_A: [[12, 45, 98, 221], [88, 14, 250, 4], [23, 119, 12, 97], [180, 203, 56, 12]],
+                                                            error_noise_e1: [-1, 0, 1, 0, -1, 0, 0, 1],
+                                                            ephemeral_vector_r: [1, -1, 0, 1, 1, 0, -1, 0]
+                                                        }
+                                                    },
+                                                    ai_evaluation: {
+                                                        action: tx.action,
+                                                        score: tx.score,
+                                                        reason: tx.reason,
+                                                        metrics: {
+                                                            location_risk: tx.action === "FREEZE" ? 0.85 : tx.action === "ESCALATE" ? 0.50 : 0.0,
+                                                            amount_risk: tx.amount > 9000 ? 0.95 : tx.amount > 2000 ? 0.50 : 0.1,
+                                                            velocity_risk: tx.transaction_id.includes("TX_1005") ? 0.90 : 0.05,
+                                                            device_risk: tx.device.includes("Proxy") ? 0.70 : 0.05
+                                                        },
+                                                        agent_reasoning: [
+                                                            `[Agent Core] Historic inspection retrieved for transaction ${tx.transaction_id}`,
+                                                            `[Context Service] Home verification node: '${tx.location}'`,
+                                                            `[Action Engine] Concluding rule resolution: ${tx.action}`
+                                                        ]
+                                                    }
+                                                };
+                                                setCurrentTrace(preparedMockTelemetry);
+                                            }}
+                                        >
+                                            <td class="py-3.5 pr-4 font-mono font-bold text-xs text-white">{tx.transaction_id}</td>
+                                            <td class="py-3.5 px-4 text-xs font-semibold text-slate-400">{tx.user_id}</td>
+                                            <td class="py-3.5 px-4 font-mono font-semibold text-white">₹{tx.amount.toLocaleString()}</td>
+                                            <td class="py-3.5 px-4 text-xs">{tx.merchant}</td>
+                                            <td class="py-3.5 px-4 text-xs">{tx.location}</td>
+                                            <td class="py-3.5 px-4 text-xs font-mono">{tx.device}</td>
+                                            <td class="py-3.5 px-4 text-[11px] text-slate-500 font-mono">
+                                                {new Date(tx.timestamp).toLocaleTimeString()}
+                                            </td>
+                                            <td class="py-3.5 pl-4">{getActionBadge(tx.action)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                </div>
+            );
+        }
+
+        // Render App
+        const rootElement = document.getElementById("root");
+        const root = ReactDOM.createRoot(rootElement);
+        root.render(<App />);
+    </script>
+</body>
+</html>
